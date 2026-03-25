@@ -1,62 +1,45 @@
 import math
 import os
-import sqlite3
+from importlib import import_module
 from datetime import datetime
 
 from flask import Flask, jsonify, render_template, request
 
-try:
-    import psycopg2
-except ImportError:
-    psycopg2 = None
-
 
 app = Flask(__name__, template_folder="template")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-SQLITE_PATH = os.getenv("DB_PATH", "attendance.db")
-IS_POSTGRES = DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")
 
 
 def get_postgres_dsn():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is required for PostgreSQL.")
     if DATABASE_URL.startswith("postgres://"):
         return DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    if not DATABASE_URL.startswith("postgresql://"):
+        raise RuntimeError("DATABASE_URL must start with postgresql:// (or postgres://).")
     return DATABASE_URL
 
 
 def get_db_connection():
-    if IS_POSTGRES:
-        if psycopg2 is None:
-            raise RuntimeError("psycopg2 is not installed. Install requirements to use PostgreSQL.")
-        return psycopg2.connect(get_postgres_dsn())
-    return sqlite3.connect(SQLITE_PATH)
+    try:
+        psycopg2 = import_module("psycopg2")
+    except ImportError as exc:
+        raise RuntimeError("psycopg2 is not installed. Install requirements to use PostgreSQL.") from exc
+    return psycopg2.connect(get_postgres_dsn())
 
 
 def init_feedback_table():
     with get_db_connection() as conn:
-        if IS_POSTGRES:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS feedback (
-                        id SERIAL PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        email TEXT,
-                        rating INTEGER NOT NULL,
-                        message TEXT NOT NULL,
-                        created_at TIMESTAMP NOT NULL
-                    )
-                    """
-                )
-        else:
-            conn.execute(
+        with conn.cursor() as cursor:
+            cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS feedback (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id SERIAL PRIMARY KEY,
                     name TEXT NOT NULL,
                     email TEXT,
                     rating INTEGER NOT NULL,
                     message TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TIMESTAMP NOT NULL
                 )
                 """
             )
@@ -68,18 +51,12 @@ def save_feedback(name, email, rating, message):
         query = """
             INSERT INTO feedback (name, email, rating, message, created_at)
             VALUES (%s, %s, %s, %s, %s)
-        """ if IS_POSTGRES else """
-            INSERT INTO feedback (name, email, rating, message, created_at)
-            VALUES (?, ?, ?, ?, ?)
         """
         created_at = datetime.utcnow()
-        stored_time = created_at if IS_POSTGRES else created_at.isoformat(timespec="seconds")
+        stored_time = created_at
 
-        if IS_POSTGRES:
-            with conn.cursor() as cursor:
-                cursor.execute(query, (name, email or None, rating, message, stored_time))
-        else:
-            conn.execute(query, (name, email or None, rating, message, stored_time))
+        with conn.cursor() as cursor:
+            cursor.execute(query, (name, email or None, rating, message, stored_time))
         conn.commit()
 
 
@@ -94,19 +71,15 @@ except Exception as exc:
 def health():
     try:
         with get_db_connection() as conn:
-            if IS_POSTGRES:
-                with conn.cursor() as cursor:
-                    cursor.execute("SELECT 1")
-                    row = cursor.fetchone()
-                    db_ok = bool(row and row[0] == 1)
-            else:
-                row = conn.execute("SELECT 1").fetchone()
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                row = cursor.fetchone()
                 db_ok = bool(row and row[0] == 1)
 
         payload = {
             "status": "ok" if db_ok else "degraded",
             "database": "ok" if db_ok else "unhealthy",
-            "db_backend": "postgresql" if IS_POSTGRES else "sqlite",
+            "db_backend": "postgresql",
         }
         if DB_INIT_ERROR:
             payload["startup_warning"] = DB_INIT_ERROR
@@ -117,7 +90,7 @@ def health():
             {
                 "status": "unhealthy",
                 "database": "unreachable",
-                "db_backend": "postgresql" if IS_POSTGRES else "sqlite",
+                "db_backend": "postgresql",
                 "error": str(exc),
             }
         ), 503
