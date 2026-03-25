@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Calculator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="bg-orb orb-one"></div>
+    <div class="bg-orb orb-two"></div>
+    <div class="bg-grid"></div>
+
+    <main class="page">
+        <section class="hero card reveal">
+            <div class="hero-copy">
+                <p class="eyebrow">Attendance Studio</p>
+                <h1>Track smarter, stay stress-free.</h1>
+                <p class="subtitle">See exactly where you stand and how many classes you can miss without dropping below your target.</p>
+                <div class="hero-tags">
+                    <span class="tag">Instant calculator</span>
+                    <span class="tag">Goal based planning</span>
+                    <span class="tag">Student friendly</span>
+                </div>
+            </div>
+            <div class="hero-panel">
+                <p class="panel-title">Target Mode</p>
+                <p class="panel-value">{{ inputs.target_percentage }}%</p>
+                <p class="panel-caption">Set your goal and keep control.</p>
+            </div>
+        </section>
+
+        <section class="card form-card reveal">
+            <h2>Attendance Check</h2>
+            <p class="subtitle">Fill all required fields to unlock the calculate button.</p>
+
+            {% if error %}
+                <div class="messages">
+                    <p class="message error">{{ error }}</p>
+                </div>
+            {% endif %}
+
+            <form method="post" class="attendance-form">
+                <input type="hidden" name="form_type" value="attendance">
+
+                <label>
+                    Total Classes
+                    <input type="number" min="1" name="total_classes" value="{{ inputs.total_classes }}" required>
+                </label>
+
+                <label>
+                    Attended Classes
+                    <input type="number" min="0" name="attended_classes" value="{{ inputs.attended_classes }}" required>
+                </label>
+
+                <label>
+                    Target Percentage
+                    <input type="number" min="1" max="99.99" step="0.01" name="target_percentage" value="{{ inputs.target_percentage }}" required>
+                </label>
+
+                <button type="submit" class="floating-submit">Calculate</button>
+            </form>
+        </section>
+
+        {% if result %}
+            <section class="kpi-grid reveal">
+                <article class="card kpi">
+                    <p>Current Attendance</p>
+                    <h2>{{ result.current_percentage }}%</h2>
+                </article>
+                <article class="card kpi">
+                    <p>Total Absences</p>
+                    <h2>{{ result.absent_classes }}</h2>
+                </article>
+                <article class="card kpi">
+                    <p>Classes Needed</p>
+                    <h2>{{ result.classes_needed }}</h2>
+                </article>
+                <article class="card kpi {% if result.is_safe %}safe{% else %}alert{% endif %}">
+                    <p>Can Still Miss</p>
+                    <h2>{{ result.max_missable }}</h2>
+                </article>
+            </section>
+
+            <section class="card status-card reveal">
+                <div class="status-head">
+                    {% if result.is_safe %}
+                        <p class="ok">You are above your target of {{ result.target_percentage }}%.</p>
+                    {% else %}
+                        <p class="low">You are below your target of {{ result.target_percentage }}%.</p>
+                    {% endif %}
+                </div>
+                <div class="progress-wrap">
+                    <div class="progress-track">
+                        <div class="progress-fill {% if not result.is_safe %}warn{% endif %}" style="width: {{ result.current_percentage }}%;"></div>
+                    </div>
+                    <small class="progress-label">Current: {{ result.current_percentage }}% | Target: {{ result.target_percentage }}%</small>
+                </div>
+            </section>
+        {% endif %}
+
+        <section class="card feedback-card reveal">
+            <h2>Share Feedback</h2>
+            <p class="subtitle">Tell us what is useful and what we should improve next.</p>
+
+            {% if feedback_success or feedback_error %}
+                <div class="messages">
+                    {% if feedback_success %}
+                        <p class="message success">{{ feedback_success }}</p>
+                    {% endif %}
+                    {% if feedback_error %}
+                        <p class="message error">{{ feedback_error }}</p>
+                    {% endif %}
+                </div>
+            {% endif %}
+
+            <form method="post" class="feedback-form">
+                <input type="hidden" name="form_type" value="feedback">
+
+                <label>
+                    Name
+                    <input type="text" name="name" value="{{ feedback_inputs.name }}" required>
+                </label>
+
+                <label>
+                    Email (optional)
+                    <input type="email" name="email" value="{{ feedback_inputs.email }}">
+                </label>
+
+                <label>
+                    Rating
+                    <select name="rating" required>
+                        <option value="5" {% if feedback_inputs.rating == '5' %}selected{% endif %}>5 - Excellent</option>
+                        <option value="4" {% if feedback_inputs.rating == '4' %}selected{% endif %}>4 - Good</option>
+                        <option value="3" {% if feedback_inputs.rating == '3' %}selected{% endif %}>3 - Average</option>
+                        <option value="2" {% if feedback_inputs.rating == '2' %}selected{% endif %}>2 - Poor</option>
+                        <option value="1" {% if feedback_inputs.rating == '1' %}selected{% endif %}>1 - Very Poor</option>
+                    </select>
+                </label>
+
+                <label class="full-width">
+                    Your Feedback
+                    <textarea name="message" rows="4" required>{{ feedback_inputs.message }}</textarea>
+                </label>
+
+                <button type="submit" class="floating-submit">Submit Feedback</button>
+            </form>
+        </section>
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const forms = document.querySelectorAll("form");
+
+            forms.forEach((form) => {
+                const submitButton = form.querySelector("button[type='submit']");
+                if (!submitButton) return;
+
+                const updateButtonState = () => {
+                    const isValid = form.checkValidity();
+                    submitButton.disabled = !isValid;
+                    submitButton.classList.toggle("is-ready", isValid);
+                };
+
+                form.addEventListener("input", updateButtonState);
+                form.addEventListener("change", updateButtonState);
+                updateButtonState();
+            });
+        });
+    </script>
+</body>
+</html>
